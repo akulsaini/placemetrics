@@ -15,7 +15,7 @@ app = FastAPI(
 )
 
 register_error_handlers(app)
-)
+
 
 app.add_middleware(
     CORSMiddleware,
