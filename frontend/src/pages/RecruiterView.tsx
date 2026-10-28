@@ -675,3 +675,4 @@ export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = ({ onDataCh
     </div>
   );
 };
+export default RecruiterDashboard;

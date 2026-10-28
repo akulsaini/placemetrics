@@ -768,3 +768,4 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onDataChange
     </div>
   );
 };
+export default StudentDashboard;
