@@ -1,14 +1,22 @@
 
-from fastapi import FastAPI
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.database import engine
+from app.errors import register_error_handlers
 
 app = FastAPI(
     title="Placemetrics AI",
     description="Explainable campus placement intelligence API",
-    version="0.1.0",
+    version="1.0.0",
 )
 
-# Allow our local React frontend to communicate with this API.
+register_error_handlers(app)
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -26,6 +34,22 @@ def root():
     return {"message": "Placemetrics AI API is running"}
 
 
-@app.get("/health")
+@app.get("/api/v1/health")
 def health_check():
-    return {"status": "ok"}
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+        return {
+            "status": "ok",
+            "database": "connected",
+        }
+
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "degraded",
+                "database": "unavailable",
+            },
+        )
