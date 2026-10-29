@@ -63,6 +63,7 @@ class StudentOut(APIModel):
     graduation_year: int
     skills: list[str]
     resume_filename: str | None
+    has_resume: bool
     created_at: object
 
 
@@ -71,7 +72,7 @@ class StudentOut(APIModel):
 class JobCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     company: str = Field(min_length=1, max_length=200)
-    description: str = Field(min_length=1)
+    description: str = Field(min_length=20, max_length=20000)
     min_cgpa: Decimal = Field(
         ge=0, le=10, max_digits=4, decimal_places=2
     )
@@ -118,6 +119,7 @@ class JobOut(APIModel):
     description: str
     min_cgpa: Decimal
     allowed_branches: list[str]
+    applicant_count: int
     target_graduation_year: int
     required_skills: list[str]
     created_at: object
