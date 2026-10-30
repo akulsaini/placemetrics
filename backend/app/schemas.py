@@ -1,3 +1,5 @@
+from datetime import datetime
+from typing import Annotated, Literal
 
 from decimal import Decimal
 from enum import Enum
@@ -20,17 +22,29 @@ class APIModel(BaseModel):
 
 # ---------- Student schemas ----------
 
+class BranchEnum(str, Enum):
+    CSE = "CSE"
+    ECE = "ECE"
+    EE = "EE"
+    ME = "ME"
+    CIVIL = "CIVIL"
+    IT = "IT"
+
 class StudentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
-    branch: str = Field(min_length=1, max_length=10)
-    cgpa: Decimal = Field(ge=0, le=10, max_digits=4, decimal_places=2)
+    branch: BranchEnum
+    cgpa: Decimal = Field(
+        ge=0, le=10, max_digits=4, decimal_places=2
+    )
     graduation_year: int = Field(ge=2020, le=2035)
-    skills: list[str] = Field(default_factory=list, max_length=100)
+    skills: list[Annotated[str, Field(min_length=1, max_length=50)]] = (
+        Field(default_factory=list, max_length=50)
+    )
 
-    @field_validator("name", "branch")
+    @field_validator("name")
     @classmethod
-    def strip_text(cls, value: str) -> str:
+    def strip_name(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError("This field cannot be blank")
@@ -44,30 +58,42 @@ class StudentCreate(BaseModel):
     @field_validator("skills")
     @classmethod
     def clean_skills(cls, skills: list[str]) -> list[str]:
+        from app.services.skills import normalize_skills
+
         cleaned = []
         for skill in skills:
             skill = skill.strip()
-            if skill and skill.lower() not in {
-                item.lower() for item in cleaned
-            }:
-                cleaned.append(skill)
-        return cleaned
+            if not skill:
+                raise ValueError("Skills cannot be blank")
+            cleaned.append(skill)
+
+        return normalize_skills(cleaned)
 
 
 class StudentOut(APIModel):
     id: int
     name: str
     email: EmailStr
-    branch: str
-    cgpa: Decimal
+    branch: BranchEnum
+    cgpa: float
     graduation_year: int
     skills: list[str]
     resume_filename: str | None
     has_resume: bool
-    created_at: object
+    created_at: datetime
+
+
+class ResumeUploadOut(APIModel):
+    student_id: int
+    filename: str
+    characters_extracted: int
+    extracted_skills: list[str]
+    skills: list[str]
+    resume_text_preview: str
 
 
 # ---------- Job schemas ----------
+
 
 class JobCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
@@ -76,11 +102,13 @@ class JobCreate(BaseModel):
     min_cgpa: Decimal = Field(
         ge=0, le=10, max_digits=4, decimal_places=2
     )
-    allowed_branches: list[str] = Field(min_length=1, max_length=50)
-    target_graduation_year: int = Field(ge=2020, le=2035)
-    required_skills: list[str] = Field(
-        default_factory=list, max_length=100
+    allowed_branches: list[BranchEnum] = Field(
+        min_length=1, max_length=6
     )
+    target_graduation_year: int = Field(ge=2020, le=2035)
+    required_skills: list[
+        Annotated[str, Field(min_length=1, max_length=50)]
+    ] = Field(default_factory=list, max_length=30)
 
     @field_validator("title", "company", "description")
     @classmethod
@@ -92,24 +120,28 @@ class JobCreate(BaseModel):
 
     @field_validator("allowed_branches")
     @classmethod
-    def clean_branches(cls, branches: list[str]) -> list[str]:
-        cleaned = list(dict.fromkeys(
-            branch.strip().upper()
-            for branch in branches
-            if branch.strip()
-        ))
-        if not cleaned:
-            raise ValueError("At least one allowed branch is required")
-        return cleaned
+    def validate_branches(
+        cls, branches: list[BranchEnum]
+    ) -> list[BranchEnum]:
+        if len(branches) != len(set(branches)):
+            raise ValueError("Duplicate branches are not allowed")
+        return branches
 
     @field_validator("required_skills")
     @classmethod
     def clean_required_skills(cls, skills: list[str]) -> list[str]:
-        return list(dict.fromkeys(
-            skill.strip()
-            for skill in skills
-            if skill.strip()
-        ))
+        cleaned = []
+        seen = set()
+
+        for skill in skills:
+            skill = skill.strip().lower()
+            if not skill:
+                raise ValueError("Skills cannot be blank")
+            if skill not in seen:
+                cleaned.append(skill)
+                seen.add(skill)
+
+        return cleaned
 
 
 class JobOut(APIModel):
@@ -119,10 +151,11 @@ class JobOut(APIModel):
     description: str
     min_cgpa: Decimal
     allowed_branches: list[str]
-    applicant_count: int
     target_graduation_year: int
     required_skills: list[str]
-    created_at: object
+    created_at: datetime
+    applicant_count: int
+
 
 
 # ---------- Application schemas ----------
@@ -147,13 +180,14 @@ class ApplicationOut(APIModel):
     status: ApplicationStatus
     match_score: Decimal
     eligibility_passed: bool
-    applied_at: object
-    updated_at: object
+    applied_at: datetime
+    updated_at: datetime
 
 
 class BulkStatusUpdate(BaseModel):
+    job_id: int = Field(gt=0)
     application_ids: list[int] = Field(min_length=1, max_length=500)
-    status: ApplicationStatus
+    new_status: ApplicationStatus
 
     @field_validator("application_ids")
     @classmethod
@@ -163,3 +197,89 @@ class BulkStatusUpdate(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate application IDs are not allowed")
         return ids
+
+    @field_validator("new_status")
+    @classmethod
+    def validate_target_status(
+        cls, value: ApplicationStatus
+    ) -> ApplicationStatus:
+        if value == ApplicationStatus.APPLIED:
+            raise ValueError("Applications cannot be moved back to APPLIED")
+        return value
+
+
+class BulkStatusOut(BaseModel):
+    job_id: int
+    new_status: ApplicationStatus
+    updated_count: int
+    applications: list[ApplicationOut]
+
+class EligibilityCheck(APIModel):
+    passed: bool
+    required: str
+    actual: str
+
+
+class EligibilityChecks(APIModel):
+    cgpa: EligibilityCheck
+    branch: EligibilityCheck
+    graduation_year: EligibilityCheck
+
+
+class EvaluationOut(APIModel):
+    job_id: int
+    student_id: int
+    eligibility_passed: bool
+    eligibility_checks: EligibilityChecks
+    ineligibility_reasons: list[str]
+    matched_skills: list[str]
+    missing_skills: list[str]
+    skill_match_ratio: float
+    semantic_similarity: float
+    match_score: float
+    match_band: str
+    embedding_backend: str
+    improvement_suggestions: list[str]
+    summary: str
+
+class ApplicationWithJobOut(ApplicationOut):
+    job: JobOut
+
+class CandidateOut(BaseModel):
+    rank: int
+    application_id: int | None
+    status: ApplicationStatus | None
+    applied_at: datetime | None
+    student: StudentOut
+    evaluation: EvaluationOut
+
+
+class CandidatesOut(BaseModel):
+    job_id: int
+    total: int
+    eligible_count: int
+    candidates: list[CandidateOut]
+
+
+class SeedStudent(StudentCreate):
+    resume_text: str | None = None
+
+
+class SeedApplication(BaseModel):
+    student_email: str
+    job_index: int = Field(ge=0)
+    status: ApplicationStatus
+
+
+class SeedRequest(BaseModel):
+    reset: bool = True
+    students: list[SeedStudent] = Field(default_factory=list)
+    jobs: list[JobCreate] = Field(default_factory=list)
+    applications: list[SeedApplication] = Field(default_factory=list)
+
+
+class SeedOut(BaseModel):
+    students_created: int
+    jobs_created: int
+    applications_created: int
+    used_builtin_dataset: bool
