@@ -1,5 +1,7 @@
 # Placemetrics AI
 
+!! we have different branch for frontend, backend. please refers them, for now
+
 ### An Explainable Campus Placement & Recruitment Intelligence Platform
 
 Placemetrics AI is a full-stack campus placement platform designed to streamline the interaction between students, recruiters, and placement teams. It combines structured student and job data, automated eligibility validation, and explainable resume-to-job matching to make campus recruitment more organized and transparent.
